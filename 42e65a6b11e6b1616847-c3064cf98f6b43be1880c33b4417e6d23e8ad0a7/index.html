@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+    <script src="http://d3js.org/topojson.v1.min.js"></script>
+    <title>人口マップ2</title>
+  </head>
+  <body>
+    <div class="container"></div>
+
+<script type="text/javascript">
+
+var mapfilepath = 'japan.topojson';
+//var mapfilepath = 'japan.topojson';
+var csvpath = 'aaa.csv';
+var jinkouData;
+var years;
+var currentYear;
+
+var zoom = d3.behavior.zoom()
+    .scaleExtent([1, 8])
+    .on("zoom", zoomed);
+
+var w = 960;
+var h = 960;
+var container = d3.select('.container');
+var svg = container.append('svg')
+    .attr('width', w)
+    .attr('height', h)
+    .append("g");
+
+var g = svg.append("g");
+
+svg.call(zoom)
+    .call(zoom.event);
+
+// データの数値から色に変換する関数
+var color = d3.scale.linear()
+    .domain([0,500,1000, 2000,3000, 4000,5000, 6000,7000, 8000,9000,10000,11000,12000,13000,14000])
+    .range(['#0000FF','#0066FF', '#0099FF', '#00FFFF','#00FF99', '#00FF66', '#00FF00','#66FF00','#99FF00','#CCFF00','#FFFF00','#FFCC00','#FF9900','#FF6600','#FF3300','#FF0000']);
+
+var sizeScale = d3.scale.linear()
+    .domain([0, 7000, 14000])
+    .range([1.0, 3.0, 5.0]);
+
+// 全国の都道府県の色を更新する関数
+var updateColor = function() {
+
+  // 年ラベルの色を更新する
+  svg.selectAll('text.year')
+    .transition()
+    .duration(300)
+    .style('fill', function() {
+      var self = d3.select(this);
+      if (currentYear === self.attr('year')) {
+        return 'red';
+      } else {
+        return 'black';
+      }
+    });
+
+  // 都道府県の色を更新する
+  g.selectAll('path')
+    .transition()
+    .duration(300)
+    .style('fill', function() {
+      return color(d3.select(this).attr('year-' + currentYear));
+    })
+    .attr('transform', function(d) {
+      var self = d3.select(this);
+      return 'translate(' + self.attr('center-x') + ', ' + self.attr('center-y') +
+      ')scale(' + sizeScale(d3.select(this).attr('year-' + currentYear)) + ')' +
+      'translate(-' + self.attr('center-x') + ', -' + self.attr('center-y') + ')';
+    })
+    ;
+};
+
+// 凡例を追加
+svg.selectAll('rect.legend')
+  .data([0,500,1000, 2000,3000, 4000,5000, 6000,7000, 8000,9000,10000,11000,12000,13000,140000])
+  .enter()
+  .append('rect')
+  .attr('class', 'legend')
+  .attr('x', 40)
+  .attr('y', function(d, i) { return 40 + 20 * i; })
+  .attr('width', 20)
+  .attr('height', 20)
+  .attr('fill', function(d) { return color(d); });
+
+svg.selectAll('text.legend')
+  .data([0,500,1000, 2000,3000, 4000,5000, 6000,7000, 8000,9000,10000,11000,12000,13000,14000])
+  .enter()
+  .append('text')
+  .attr('x', 62)
+  .attr('y', function(d, i) { return 40 + 20 * i + 12; })
+  .attr('font-size', 9)
+  .text(function(d) { return d + '千人'; });
+
+// csvファイルの読み込み
+d3.csv(csvpath, function(error, dataset) {
+	// 背景色
+  g.append('rect')
+	    .attr('class', 'background')
+      .attr('x', - w * 2)
+      .attr('y', - h * 2)
+	    .attr('width', w * 4)
+	    .attr('height', h * 4)
+	    .attr('fill', 'darkgray');
+
+	console.log(dataset);
+	jinkouData = dataset;
+
+	// 年ラベルの設定
+	years = Object.keys(dataset[0]);
+	years.some(function(v, i){
+		if (v === 'ken') { years.splice(i, 1); }
+	});
+	svg.selectAll('text.year')
+		.data(years)
+		.enter()
+		.append('text')
+		.attr('class', 'year')
+		.attr('x', function(d, i){return (i + 0.5) * w / years.length;})
+		.attr('y', 20)
+		.attr('text-anchor', 'middle')
+		.attr('font-size', 9)
+		.attr('font-family', 'Helvetica')
+		.attr('font-weight', 'bold')
+		.attr('year', function(d){return d;})
+		.style('cursor', 'pointer')
+		.text(function(d){return d + '年';});
+
+  // クリックイベントの設定
+	d3.selectAll('text.year').on('click', function(){
+    currentYear = this.getAttribute('year');
+		updateColor();
+	});
+
+  // csvファイルを読み込んだ後にmapファイルを読み込み
+  d3.json(mapfilepath, loadmapCallback);
+});
+
+// mapファイル読み込みのコールバック関数（読み込み終了後に呼び出される）
+var loadmapCallback = function(error, collection) {
+		if (error) {
+			return console.warn(error);
+		}
+
+    var japan = topojson.feature(collection, collection.objects.japan).features;
+
+    // setup map
+    var projection = d3.geo.mercator()
+                       .scale(1500)
+                       .center([137, 34])
+                       //.center(d3.geo.centroid(collection))
+                       .translate([w / 2, h / 2 - 50]);
+
+    var path = d3.geo.path().projection(projection);
+
+    g.selectAll('path')
+      .data(japan)
+      .enter()
+      .append('path')
+      .attr('d', path)
+      .attr('ken', function(d) {
+        return d.properties.name_local;
+      })
+      .attr('center-x', function(d, i) {
+        return path.centroid(japan[i])[0];
+      })
+      .attr('center-y', function(d, i) {
+        return path.centroid(japan[i])[1];
+      })
+      .style('fill', function(d, i) {
+        return 'lightgray';
+      })
+      .style('cursor', 'pointer')
+      .on('mouseover', function(){
+      	var self = d3.select(this);
+      	self.style('fill', 'red');
+      })
+      .on('mouseout', function(d, i){
+      	var self = d3.select(this);
+      	self.transition()
+      	  .duration(300)
+          .style('fill', function(d, i) {
+            return color(self.attr('year-' + currentYear));
+          });
+      })
+      ;
+
+      // jinkouDataの各年のデータをpathの属性に追加する
+      svg.selectAll('path')
+        .each(function() {
+          var p = d3.select(this);
+          var ds = jinkouData.filter(function(d){
+            //console.log('ken', d['ken']);
+            return (d['ken'] === p.attr('ken'));
+          });
+          if (ds.length > 0) {
+            var d = ds[0];
+            for (var year of years) {
+              p.attr('year-' + year, d[year]);
+            }
+          }
+        })
+
+      // 最初の年で色を更新する
+      currentYear = years[0];
+      updateColor();
+};
+
+function zoomed() {
+  g.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
+}
+
+d3.select(self.frameElement).style("height", h + "px");
+
+</script>
+
+ </body>
+</html>
